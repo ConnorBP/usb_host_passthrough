@@ -179,7 +179,8 @@ void loop()
   if (mouse1.available()) {
     Mouse.move(mouse1.getMouseX(),mouse1.getMouseY());
     Mouse.scroll(mouse1.getWheel());
-    
+
+    // clear the mouse data (EXCEPT IMPORTANT ########################### WE MODIFIED THE LIBRARY TO NOT CLEAR BUTTON PRESSES)
     mouse1.mouseDataClear();
   } else {
     // mouse move 0,0 to make it send a packet anyways when its only button presses
