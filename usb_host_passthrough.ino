@@ -104,7 +104,12 @@ void loop()
 
     if(inputString == "ml") {
       //Serial.println("clicking");
-      serial_buttons_value |= MOUSE_LEFT;
+      noInterrupts();
+      bool bMouse4Down = (get_buttons & MOUSE_BACK) > 0;
+      interrupts();
+      if(bMouse4Down) {
+        serial_buttons_value |= MOUSE_LEFT;
+      }
     } else if(inputString == "mlu") { // mouse left up
       serial_buttons_value &= ~MOUSE_LEFT;
     } else if(inputString == "mr") { // MR mouse right
@@ -172,7 +177,7 @@ void loop()
   // copy data to and from the interrupt storage
   noInterrupts();
   // set the output button state plus the old button state from last frame for debouncing
-  usb_mouse_buttons_state = (get_buttons | serial_buttons_value/* | old_buttons_value*/) & MOUSE_ALL;
+  usb_mouse_buttons_state = (get_buttons | serial_buttons_value/* | old_buttons_value*/) & (MOUSE_ALL & ~MOUSE_BACK) & MOUSE_ALL;
   // set the old button frame for next debounce
   //old_buttons_value = get_buttons;
   interrupts();
