@@ -52,6 +52,16 @@ elapsedMillis sinceMouseData; // get elapsed time since last mouse
 String inputString = "";
 bool stringComplete = false;
 
+// receiving move commands
+int argc = 0;
+// max 4 args
+int args[4] = {0,0,0,0};
+int mvx,mvy = 0;
+
+// syntax for receiving numbers
+const char startOfNumberDelimiter = '<';
+const char endOfNumberDelimiter = '>';
+
 // interupt timer for reading usb mouse events at 1khz
 IntervalTimer usbReadTimer;
 
@@ -67,6 +77,17 @@ void setup()
   usbReadTimer.begin(readMouseIn,1000);
 }
 
+bool prefix(const char *pre, const char *str)
+{
+  return strncmp(pre, str, strlen(pre)) == 0;
+}
+
+// casts four bytes from a byte array into an int
+//int get_int(const char *str, int startByte)
+//{
+//  int i = (int) ((str[startByte] << 24) | (str[startByte+1] << 16) | str[startByte+2] << 8) | (str[startByte+3]);
+//  return i;
+//}
 
 void loop()
 {
@@ -116,10 +137,17 @@ void loop()
       serial_buttons_value |= MOUSE_RIGHT;
     } else if(inputString == "mru") { // mouse right up
       serial_buttons_value &= ~MOUSE_RIGHT;
+    } else if(prefix("mv", inputString.c_str())) {
+      if(argc >= 2) {
+        mvx = args[0];
+        mvy = args[1];
+        Serial.printf("mouse move x:%i y:%i",mvx,mvy);
+      }
     }
     serial_buttons_value &= MOUSE_ALL;
     // reset command string
     inputString = "";
+    argc = 0;
     stringComplete = false;
   }
 
@@ -182,15 +210,18 @@ void loop()
   //old_buttons_value = get_buttons;
   interrupts();
   if (mouse1.available()) {
-    Mouse.move(mouse1.getMouseX(),mouse1.getMouseY());
+    Mouse.move(mouse1.getMouseX()+mvx,mouse1.getMouseY()+mvy);
     Mouse.scroll(mouse1.getWheel());
 
     // clear the mouse data (EXCEPT IMPORTANT ########################### WE MODIFIED THE LIBRARY TO NOT CLEAR BUTTON PRESSES)
     mouse1.mouseDataClear();
   } else {
     // mouse move 0,0 to make it send a packet anyways when its only button presses
-    Mouse.move(0,0);
+    Mouse.move(mvx,mvy);
   }
+  // reset the move command values after use so they don't get re used
+  mvx = 0;
+  mvy = 0;
 }
 
 // interupt that runs once every MS to read mouse data at 1KHZ polling rate
@@ -211,30 +242,33 @@ void readMouseIn() {
 }
 
 void ProcessSerial(char inChar) {
+  static long receivedNumber = 0;
+  static boolean negative = false;
+  
   switch(inChar)
     {
       case '\n':
         stringComplete = true;
         //Serial.write("ending string");
         break;
-//      case endOfNumberDelimiter:
-//        if(negative)
-//          args[argc-1] = -receivedNumber;
-//        else
-//          args[argc-1] = receivedNumber;
-//        break;
-//      case startOfNumberDelimiter:
-//        argc++;
-//        receivedNumber = 0;
-//        negative = false;
-//        break;
-//      case '0' ... '9':
-//        receivedNumber=10;
-//        receivedNumber += inChar - '0';
-//        break;
-//      case '-':
-//        negative = true;
-//        break;
+      case endOfNumberDelimiter:
+        if(negative)
+          args[argc-1] = -receivedNumber;
+        else
+          args[argc-1] = receivedNumber;
+        break;
+      case startOfNumberDelimiter:
+        argc++;
+        receivedNumber = 0;
+        negative = false;
+        break;
+      case '0' ... '9':
+        receivedNumber *= 10;
+        receivedNumber += inChar - '0';
+        break;
+      case '-':
+        negative = true;
+        break;
       default:
         //Serial.write("got char: ");
         //Serial.write(inChar);
