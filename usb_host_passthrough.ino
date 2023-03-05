@@ -56,7 +56,7 @@ bool stringComplete = false;
 int argc = 0;
 // max 4 args
 int args[4] = {0,0,0,0};
-int mvx,mvy = 0;
+uint16_t mvx,mvy = 0;
 
 // syntax for receiving numbers
 const char startOfNumberDelimiter = '<';
@@ -75,6 +75,8 @@ void setup()
   inputString.reserve(200);
   myusb.begin();
   usbReadTimer.begin(readMouseIn,1000);
+
+  
 }
 
 bool prefix(const char *pre, const char *str)
@@ -210,14 +212,18 @@ void loop()
   //old_buttons_value = get_buttons;
   interrupts();
   if (mouse1.available()) {
-    Mouse.move(mouse1.getMouseX()+mvx,mouse1.getMouseY()+mvy);
+    Mouse.move((int16_t)mouse1.getMouseX()+(int16_t)mvx,mouse1.getMouseY()+mvy);
     Mouse.scroll(mouse1.getWheel());
+
+    //usb_mouse_move((int16_t)mouse1.getMouseX()+(int16_t)mvx,mouse1.getMouseY()+mvy,mouse1.getWheel(),0);
 
     // clear the mouse data (EXCEPT IMPORTANT ########################### WE MODIFIED THE LIBRARY TO NOT CLEAR BUTTON PRESSES)
     mouse1.mouseDataClear();
   } else {
     // mouse move 0,0 to make it send a packet anyways when its only button presses
-    Mouse.move(mvx,mvy);
+    // WE MODIFIED THE MOUSE MOVE LIBRARY FUNCTION TO SUBMIT 16BIT NUMBERS NOT 8
+    Mouse.move((int16_t)mvx,(int16_t)mvy);
+   // usb_mouse_move(mvx,mvy,0,0);
   }
   // reset the move command values after use so they don't get re used
   mvx = 0;
