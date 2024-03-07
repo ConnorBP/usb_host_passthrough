@@ -70,21 +70,7 @@ volatile uint8_t get_buttons = 0;
 // button input from serial commands
 uint8_t serial_buttons_value = 0;
 
-elapsedMillis sinceMouseData; // get elapsed time since last mouse
-
-// for command receiving
-String inputString = "";
-bool stringComplete = false;
-
-// receiving move commands
-int argc = 0;
-// max 4 args
-int args[4] = {0,0,0,0};
-uint16_t mvx,mvy = 0;
-
-// syntax for receiving numbers
-const char startOfNumberDelimiter = '<';
-const char endOfNumberDelimiter = '>';
+//elapsedMillis sinceMouseData; // get elapsed time since last mouse (unused)
 
 // interupt timer for reading usb mouse events at 1khz
 IntervalTimer usbReadTimer;
@@ -138,19 +124,11 @@ void setup()
   // initialize the bluefruit communication
   setup_ble_device();
   
-  inputString.reserve(200);
   myusb.begin();
   usbReadTimer.begin(readMouseIn,1000);
 
   
 }
-
-// casts four bytes from a byte array into an int
-//int get_int(const char *str, int startByte)
-//{
-//  int i = (int) ((str[startByte] << 24) | (str[startByte+1] << 16) | str[startByte+2] << 8) | (str[startByte+3]);
-//  return i;
-//}
 
 void loop()
 {
@@ -194,22 +172,22 @@ void loop()
 //  }
   //serial_buttons_value = 0;
   if(stringComplete) {
-
-    if(inputString == "ml") {
-      //Serial.println("clicking");
+    DBGPRINT("STRING IS COMPLETE: "); DBGPRINTLN(inputString);
+    if(STREQ(inputString,"ml")) {
+      DBGPRINTLN("clicking");
       noInterrupts();
       bool bMouse4Down = (get_buttons & MOUSE_BACK) > 0;
       interrupts();
       if(bMouse4Down) {
         serial_buttons_value |= MOUSE_LEFT;
       }
-    } else if(inputString == "mlu") { // mouse left up
+    } else if(STREQ(inputString,"mlu")) { // mouse left up
       serial_buttons_value &= ~MOUSE_LEFT;
-    } else if(inputString == "mr") { // MR mouse right
+    } else if(STREQ(inputString,"mr")) { // MR mouse right
       serial_buttons_value |= MOUSE_RIGHT;
-    } else if(inputString == "mru") { // mouse right up
+    } else if(STREQ(inputString,"mru")) { // mouse right up
       serial_buttons_value &= ~MOUSE_RIGHT;
-    } else if(prefix("mv", inputString.c_str())) {
+    } else if(prefix("mv", inputString)) {
       if(argc >= 2) {
         mvx = args[0];
         mvy = args[1];
@@ -218,8 +196,7 @@ void loop()
     }
     serial_buttons_value &= MOUSE_ALL;
     // reset command string
-    inputString = "";
-    argc = 0;
+    reset_cmd_input();
     stringComplete = false;
   }
 
@@ -315,43 +292,4 @@ void readMouseIn() {
 //      }
 //    }
 //  }
-}
-
-void ProcessSerial(char inChar) {
-  static long receivedNumber = 0;
-  static boolean negative = false;
-  
-  switch(inChar)
-    {
-      case '\n':
-        stringComplete = true;
-        //Serial.write("ending string");
-        break;
-      case '\r':
-        stringComplete = true;
-      break;
-      case endOfNumberDelimiter:
-        if(negative)
-          args[argc-1] = -receivedNumber;
-        else
-          args[argc-1] = receivedNumber;
-        break;
-      case startOfNumberDelimiter:
-        argc++;
-        receivedNumber = 0;
-        negative = false;
-        break;
-      case '0' ... '9':
-        receivedNumber *= 10;
-        receivedNumber += inChar - '0';
-        break;
-      case '-':
-        negative = true;
-        break;
-      default:
-        //Serial.write("got char: ");
-        //Serial.write(inChar);
-        //Serial.write("\n");
-        inputString += inChar;
-    }
 }

@@ -8,6 +8,10 @@
 #ifndef UTILS_DEFINITION
 #define UTILS_DEFINITION
 
+// constant char len string compare to help avoid buffer injection
+#define STRCMP(str1,str2) strcmp(str1,str2)
+#define STRNCMP(str1,str2) strncmp(str1,str2,strlen(str2))
+#define STREQ(str1,str2) STRCMP(str1,str2) == 0
 
 const uint32_t INITIAL_CPU_SPEED = F_CPU_ACTUAL;
 // if this is set, then the board is in a lower power mode
@@ -54,6 +58,12 @@ void printcpu(void) {
   Serial.printf("CPU CLK %dMHz ORIG %dMHz\n",F_CPU_ACTUAL/1000000, INITIAL_CPU_SPEED/1000000);
 }
 
+// casts four bytes from a byte array into an int
+inline int cast_int32_parts(const char *str, int startByte)
+{
+  int i = (int) ((str[startByte] << 24) | (str[startByte+1] << 16) | str[startByte+2] << 8) | (str[startByte+3]);
+  return i;
+}
 
 #endif
 #ifdef __cplusplus

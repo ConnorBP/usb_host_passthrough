@@ -40,13 +40,37 @@
                               "DISABLE" or "MODE" or "BLEUART" or
                               "HWUART"  or "SPI"  or "MANUAL"
     -----------------------------------------------------------------------*/
-    #define FACTORYRESET_ENABLE         1
+    #define FACTORYRESET_ENABLE         0
     #define MINIMUM_FIRMWARE_VERSION    "0.6.6"
     #define MODE_LED_BEHAVIOUR          "MODE"
 /*=========================================================================*/
 #ifdef __cplusplus
  extern "C" {
 #endif
+
+/* ==== Serial Input Command State ==== */
+
+// for command receiving
+//static String inputString = "";
+static char inputString[BLE_BUFSIZE+1];
+static bool stringComplete = false;
+
+// receiving move commands
+static int argc = 0;
+// max 4 args
+static int args[4] = {0,0,0,0};
+static uint16_t mvx,mvy = 0;
+
+// syntax for receiving numbers
+const char startOfNumberDelimiter = '<';
+const char endOfNumberDelimiter = '>';
+
+void reset_cmd_input(void) {
+//  inputString = "";
+    argc = 0;
+}
+
+/* ==================================== */
 
 // Create the bluefruit object
 /* ...hardware SPI, using SCK/MOSI/MISO hardware SPI pins and then user selected CS/IRQ/RST */
@@ -74,7 +98,7 @@ void setup_ble_device() {
   #endif
   
   /* Disable command echo from Bluefruit */
-//  ble.echo(false);
+  ble.echo(false);
 
   Serial.println("Requesting Bluefruit info:");
   /* Print Bluefruit information */
@@ -102,16 +126,121 @@ void setup_ble_device() {
   }
 }
 
+void ProcessSerial(char inChar) {
+  static long receivedNumber = 0;
+  static boolean negative = false;
+  
+  switch(inChar)
+    {
+      case '\n':
+        //stringComplete = true;
+        //Serial.write("ending string");
+        break;
+      case '\r':
+        //stringComplete = true;
+      break;
+      case endOfNumberDelimiter:
+        if(negative)
+          args[argc-1] = -receivedNumber;
+        else
+          args[argc-1] = receivedNumber;
+        break;
+      case startOfNumberDelimiter:
+        argc++;
+        receivedNumber = 0;
+        negative = false;
+        break;
+      case '0' ... '9':
+        receivedNumber *= 10;
+        receivedNumber += inChar - '0';
+        break;
+      case '-':
+        negative = true;
+        break;
+      default:
+        //Serial.write("got char: ");
+        //Serial.write(inChar);
+        //Serial.write("\n");
+        //inputString += inChar;
+        break;
+    }
+}
+
+// TODO: run ProcessSerial on each char as they come in
+uint16_t readline(char * buf, uint16_t bufsize, uint16_t timeout, boolean multiline)
+{
+  uint16_t replyidx = 0;
+
+  while (timeout--) {
+    while(ble.available()) {
+      yield();
+      char c = ble.read();
+      //SerialDebug.println(c);
+      
+      ProcessSerial(c);
+
+      if (c == '\r') continue;
+      if (c == '\n') {
+        // the first '\n' is ignored
+        // ignore if \n is the first character in the line
+        if (replyidx == 0) continue;
+
+//        stringComplete = true;
+
+        timeout = 0;
+        break;
+        
+      }
+      
+      buf[replyidx] = c;
+      replyidx++;
+
+      // Buffer is full
+      if (replyidx >= bufsize) {
+        DBGPRINTLN("*overflow*");  // for my debuggin' only!
+        timeout = 0;
+        break;
+      }
+    }
+
+    // delay if needed
+    if (timeout) delay(1);
+  }
+
+  buf[replyidx] = 0;  // null term
+
+  // Print out if debug
+//  #if DEBUG
+//  if (replyidx > 0)
+//  {
+//    Serial.print(buf);
+//    if (replyidx < bufsize) Serial.println();
+//  }
+//  #endif
+
+  return replyidx;
+}
+
+uint16_t readln(void) {
+  return readline(ble.buffer, BLE_BUFSIZE, BLE_DEFAULT_TIMEOUT, false);
+}
+
 void receive_uart() {
   //   Check for incoming characters from Bluefruit
   ble.println("AT+BLEUARTRX");
   
   // read the incoming line
-  while ( ble.readline() ) {
-    if ( !strncmp(ble.buffer, "OK", strlen("OK")) || !strncmp(ble.buffer, "ERROR", strlen("ERROR"))  ) break;
-    DBGPRINT(F("[R] ")); DBGPRINTLN(ble.buffer);
-    yield();
-    boop();
+  
+  while ( readln() ) {
+    if ( !strncmp(ble.buffer, "OK", strlen("OK")) || !strncmp(ble.buffer, "ERROR", strlen("ERROR"))  ) {
+//      reset_cmd_input();
+      break;
+    } else {
+      DBGPRINT(F("[R] ")); DBGPRINTLN(ble.buffer);
+      strcpy(inputString, ble.buffer);
+      stringComplete = true;
+      boop();
+    }
   }
 }
 
