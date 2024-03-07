@@ -26,6 +26,7 @@
 #include "debug.h"
 #include "BluefruitConfig.h"
 #include "music.h"
+#include "bluefruit.h"
 
 USBHost myusb;
 USBHub hub1(myusb);
@@ -105,10 +106,11 @@ void statusCheckTask() {
     #endif
   
     // next handle clockspeed throttling and fan speed or active cooling pad power
-    if(temp > 45.0) {
-      DBGPRINTLN("Temp is too high. Going into sleep mode. (TEMPORARY TESTING MEASURE).");
-      enter_sleep();
-    } 
+    // changing temp at runtime seems to lock the teensy from some kind of SPI buffer error
+//    if(temp > 45.0) {
+//      DBGPRINTLN("Temp is too high. Going into sleep mode. (TEMPORARY TESTING MEASURE).");
+//      enter_sleep();
+//    } 
 //    else {
 //      DBGPRINTLN("resetting temp");
 //      exit_sleep();
@@ -118,17 +120,23 @@ void statusCheckTask() {
 
 void setup()
 {
+  // store initial CPU speed
+//  INITIAL_CPU_SPEED = F_CPU_ACTUAL;
+  playtune(&startupSong);
   #if DEBUG
   while (!Serial) ; // wait for Arduino Serial Monitor if we want to debug startup
   #endif
   Serial.begin(115200);
-  DBGPRINTLN("\n\nUSB Host Testing.");
+  DBGPRINTLN("=============================\n\n = Segfault USB Host Testing. =\n=============================");
 //  Serial.println(sizeof(USBHub), DEC);
   
   #if DEBUG
     printtemp();
     printcpu();
   #endif
+
+  // initialize the bluefruit communication
+  setup_ble_device();
   
   inputString.reserve(200);
   myusb.begin();
@@ -152,6 +160,9 @@ void loop()
   // some house keeping and logging
   statusCheckTask();
 
+  // poll for UART commands
+  receive_uart();
+  
 #if DEBUG
   if (Serial.available()) {
     int ch = Serial.read(); // get the first char.

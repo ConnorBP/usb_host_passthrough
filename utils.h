@@ -1,5 +1,6 @@
 // some handy util functions we don't need to stay in the main file
 // only defined once upon import, and gets inlined
+//#include <Arduino.h>
 
 #ifdef __cplusplus
  extern "C" {
@@ -20,6 +21,13 @@ extern float tempmonGetTemp(void);
 #if defined(__IMXRT1062__)
 extern "C" uint32_t set_arm_clock(uint32_t frequency);
 #endif
+
+// A small error message helper. Locks the controller upon error
+inline void error(const __FlashStringHelper*err) {
+  Serial.print("ENCOUNTERED CRITICAL ERROR: ");
+  Serial.println(err);
+  while (1);
+}
 
 // toggles on sleep mode
 inline void enter_sleep() {
