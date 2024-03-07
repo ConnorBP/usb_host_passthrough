@@ -1,8 +1,31 @@
-// Simple test of USB Host Mouse/Keyboard
-//
-// This example is in the public domain
+// USB Passthrough HID packet hijacking device.
+// Modifies mouse and keyboard input packets to adjust their values
+// Receives commands over bluetooth UART via bluefruit NRF51 spi friend
+// Copyright 2024, Property of Connor "ConnorBP / Segfault" Postma
 
+/*
+ * Porting from arduino to teensy requires a small fix to Adafruit_BluefruitLE_SPI.h 
+ * https://forum.pjrc.com/index.php?threads/teensy-3-6-vs-arduino-issues-with-adafruit-bluefruit-le-spi-friend.45440/page-2
+ * #define SPI_CS_ENABLE() digitalWrite(m_cs_pin, LOW);delayMicroseconds(1)
+ * #define SPI_CS_DISABLE() delayMicroseconds(1);digitalWrite(m_cs_pin, HIGH)
+ */
+
+
+// turn on or off extra debugging prints and helpers
+#define DEBUG TRUE
+
+#include <Arduino.h>
+#include <SPI.h>
+#include "Adafruit_BLE.h"
+#include "Adafruit_BluefruitLE_SPI.h"
+#include "Adafruit_BluefruitLE_UART.h"
+//#include "Adafruit_BluefruitLE_SEcurity.h"
 #include "USBHost_t36.h"
+
+#include "utils.h"
+#include "debug.h"
+#include "BluefruitConfig.h"
+#include "music.h"
 
 USBHost myusb;
 USBHub hub1(myusb);
@@ -16,8 +39,8 @@ USBHIDParser hid4(myusb);
 USBHIDParser hid5(myusb);
 MouseController mouse1(myusb);
 JoystickController joystick1(myusb);
-//BluetoothController bluet(myusb, true, "0000");   // Version does pairing to device
-BluetoothController bluet(myusb);   // version assumes it already was paired
+BluetoothController bluet(myusb, true, "0000");   // Version does pairing to device
+//BluetoothController bluet(myusb);   // version assumes it already was paired
 int user_axis[64];
 uint32_t buttons_prev = 0;
 RawHIDController rawhid1(myusb);
@@ -34,9 +57,9 @@ USBHIDInput *hiddrivers[] = {&mouse1, &joystick1, &rawhid1, &rawhid2};
 const char * hid_driver_names[CNT_DEVICES] = {"Mouse1", "Joystick1", "RawHid1", "RawHid2"};
 bool hid_driver_active[CNT_DEVICES] = {false, false};
 bool show_changed_only = false;
-
-uint8_t joystick_left_trigger_value = 0;
-uint8_t joystick_right_trigger_value = 0;
+//
+//uint8_t joystick_left_trigger_value = 0;
+//uint8_t joystick_right_trigger_value = 0;
 uint64_t joystick_full_notify_mask = (uint64_t) - 1;
 
 // written from interrupt
@@ -65,23 +88,53 @@ const char endOfNumberDelimiter = '>';
 // interupt timer for reading usb mouse events at 1khz
 IntervalTimer usbReadTimer;
 
+// run some general house keeping once per second
+// checks things such as tempurature to update fan or other cooling
+// may do logging or try to sleep
+// must be very lightweight and not block
+elapsedMillis statusCheckTimer;
+constexpr uint32_t checkStatusEvery = 1000; // every 1 second
+void statusCheckTask() {
+  if(statusCheckTimer >= checkStatusEvery) {
+    // reset timer
+    statusCheckTimer = 0;
+    float temp = tempmonGetTemp();
+    #if DEBUG
+    printtemp();
+    printcpu();
+    #endif
+  
+    // next handle clockspeed throttling and fan speed or active cooling pad power
+    if(temp > 45.0) {
+      DBGPRINTLN("Temp is too high. Going into sleep mode. (TEMPORARY TESTING MEASURE).");
+      enter_sleep();
+    } 
+//    else {
+//      DBGPRINTLN("resetting temp");
+//      exit_sleep();
+//    }
+  }
+}
+
 void setup()
 {
-  //while (!Serial) ; // wait for Arduino Serial Monitor
-  Serial.begin(9600);
-  Serial.println("\n\nUSB Host Testing");
-  Serial.println(sizeof(USBHub), DEC);
-  Serial1.begin(9600);
+  #if DEBUG
+  while (!Serial) ; // wait for Arduino Serial Monitor if we want to debug startup
+  #endif
+  Serial.begin(115200);
+  DBGPRINTLN("\n\nUSB Host Testing.");
+//  Serial.println(sizeof(USBHub), DEC);
+  
+  #if DEBUG
+    printtemp();
+    printcpu();
+  #endif
+  
   inputString.reserve(200);
   myusb.begin();
   usbReadTimer.begin(readMouseIn,1000);
 
   
-}
-
-bool prefix(const char *pre, const char *str)
-{
-  return strncmp(pre, str, strlen(pre)) == 0;
 }
 
 // casts four bytes from a byte array into an int
@@ -93,35 +146,41 @@ bool prefix(const char *pre, const char *str)
 
 void loop()
 {
+  // makes USB host work
   myusb.Task();
 
-//  if (Serial.available()) {
-//    int ch = Serial.read(); // get the first char.
-//    while (Serial.read() != -1) ;
-//    if ((ch == 'b') || (ch == 'B')) {
-//      Serial.println("Only notify on Basic Axis changes");
-//      joystick1.axisChangeNotifyMask(0x3ff);
-//    } else if ((ch == 'f') || (ch == 'F')) {
-//      Serial.println("Only notify on Full Axis changes");
-//      joystick1.axisChangeNotifyMask(joystick_full_notify_mask);
-//
-//    } else {
-//      if (show_changed_only) {
-//        show_changed_only = false;
-//        Serial.println("\n*** Show All fields mode ***");
-//      } else {
-//        show_changed_only = true;
-//        Serial.println("\n*** Show only changed fields mode ***");
-//      }
-//    }
-//  }
+  // some house keeping and logging
+  statusCheckTask();
 
-  // read serial in data until completion
-  while(Serial1.available()) {
-    // echo serial outputs
-    //Serial.write(Serial1.read());
-    ProcessSerial(Serial1.read());
+#if DEBUG
+  if (Serial.available()) {
+    int ch = Serial.read(); // get the first char.
+    while (Serial.read() != -1) ;
+    if ((ch == 'b') || (ch == 'B')) {
+      Serial.println("Only notify on Basic Axis changes");
+      joystick1.axisChangeNotifyMask(0x3ff);
+    } else if ((ch == 'f') || (ch == 'F')) {
+      Serial.println("Only notify on Full Axis changes");
+      joystick1.axisChangeNotifyMask(joystick_full_notify_mask);
+
+    } else {
+      if (show_changed_only) {
+        show_changed_only = false;
+        Serial.println("\n*** Show All fields mode ***");
+      } else {
+        show_changed_only = true;
+        Serial.println("\n*** Show only changed fields mode ***");
+      }
+    }
   }
+#endif
+
+//  // read serial in data until completion
+//  while(Serial1.available()) {
+//    // echo serial outputs
+//    //Serial.write(Serial1.read());
+//    ProcessSerial(Serial1.read());
+//  }
   //serial_buttons_value = 0;
   if(stringComplete) {
 
@@ -257,6 +316,9 @@ void ProcessSerial(char inChar) {
         stringComplete = true;
         //Serial.write("ending string");
         break;
+      case '\r':
+        stringComplete = true;
+      break;
       case endOfNumberDelimiter:
         if(negative)
           args[argc-1] = -receivedNumber;
