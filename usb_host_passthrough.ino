@@ -13,6 +13,8 @@
 
 // turn on or off extra debugging prints and helpers
 #define DEBUG TRUE
+#define PAUSE_ON_START FALSE
+#define BLOCK_CLICK false
 
 #include <Arduino.h>
 #include <SPI.h>
@@ -67,9 +69,6 @@ uint64_t joystick_full_notify_mask = (uint64_t) - 1;
 volatile uint8_t get_buttons = 0;
 //uint8_t old_buttons_value = 0;
 
-// button input from serial commands
-uint8_t serial_buttons_value = 0;
-
 //elapsedMillis sinceMouseData; // get elapsed time since last mouse (unused)
 
 // interupt timer for reading usb mouse events at 1khz
@@ -85,6 +84,9 @@ void statusCheckTask() {
   if(statusCheckTimer >= checkStatusEvery) {
     // reset timer
     statusCheckTimer = 0;
+
+    /* TEMPURATURE STATUS CHECK */
+    
     float temp = tempmonGetTemp();
     #if DEBUG
     printtemp();
@@ -101,6 +103,18 @@ void statusCheckTask() {
 //      DBGPRINTLN("resetting temp");
 //      exit_sleep();
 //    }
+
+    /* ====================== */
+    /* Connection State Check */
+
+    if(ble.isConnected() != bleConnected) {
+      bleConnected = !bleConnected;
+      if(bleConnected) {
+        ble_connected();
+      } else {
+        ble_disconnected();
+      }
+    }
   }
 }
 
@@ -109,7 +123,7 @@ void setup()
   // store initial CPU speed
 //  INITIAL_CPU_SPEED = F_CPU_ACTUAL;
   playtune(&startupSong);
-  #if DEBUG
+  #if PAUSE_ON_START
   while (!Serial) ; // wait for Arduino Serial Monitor if we want to debug startup
   #endif
   Serial.begin(115200);
@@ -137,7 +151,7 @@ void loop()
 
   // some house keeping and logging
   statusCheckTask();
-
+  
   // poll for UART commands
   receive_uart();
   
@@ -178,15 +192,16 @@ void loop()
       noInterrupts();
       bool bMouse4Down = (get_buttons & MOUSE_BACK) > 0;
       interrupts();
-      if(bMouse4Down) {
-        serial_buttons_value |= MOUSE_LEFT;
+//      Mouse.press(MOUSE_LEFT);
+      if(!BLOCK_CLICK || bMouse4Down) {
+        PRESS_LEFTM;
       }
     } else if(STREQ(inputString,"mlu")) { // mouse left up
-      serial_buttons_value &= ~MOUSE_LEFT;
+      RELEASE_LEFTM;
     } else if(STREQ(inputString,"mr")) { // MR mouse right
-      serial_buttons_value |= MOUSE_RIGHT;
+      PRESS_RIGHTM;
     } else if(STREQ(inputString,"mru")) { // mouse right up
-      serial_buttons_value &= ~MOUSE_RIGHT;
+      RELEASE_RIGHTM;
     } else if(prefix("mv", inputString)) {
       if(argc >= 2) {
         mvx = args[0];
@@ -252,12 +267,17 @@ void loop()
   }
 
   // copy data to and from the interrupt storage
+
+  // disable interrupts shortly for safety
   noInterrupts();
   // set the output button state plus the old button state from last frame for debouncing
   usb_mouse_buttons_state = (get_buttons | serial_buttons_value/* | old_buttons_value*/) & (MOUSE_ALL & ~MOUSE_BACK) & MOUSE_ALL;
   // set the old button frame for next debounce
   //old_buttons_value = get_buttons;
+
+  // re enable the interupts now that we have finished reading
   interrupts();
+  
   if (mouse1.available()) {
     Mouse.move((int16_t)mouse1.getMouseX()+(int16_t)mvx,mouse1.getMouseY()+mvy);
     Mouse.scroll(mouse1.getWheel());

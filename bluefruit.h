@@ -40,9 +40,11 @@
                               "DISABLE" or "MODE" or "BLEUART" or
                               "HWUART"  or "SPI"  or "MANUAL"
     -----------------------------------------------------------------------*/
-    #define FACTORYRESET_ENABLE         0
-    #define MINIMUM_FIRMWARE_VERSION    "0.6.6"
-    #define MODE_LED_BEHAVIOUR          "MODE"
+    #define FACTORYRESET_ENABLE         TRUE
+    #define MINIMUM_FIRMWARE_VERSION    "0.7.0"
+    #define MIN_LED_FW                  "0.6.6"
+    #define MODE_LED_BEHAVIOUR          '3'
+    #define MODE_LED_WAITING            '1'
 /*=========================================================================*/
 #ifdef __cplusplus
  extern "C" {
@@ -55,11 +57,14 @@
 static char inputString[BLE_BUFSIZE+1];
 static bool stringComplete = false;
 
+// button input from serial commands
+uint8_t serial_buttons_value = 0;
+
 // receiving move commands
 static int argc = 0;
 // max 4 args
 static int args[4] = {0,0,0,0};
-static uint16_t mvx,mvy = 0;
+static int16_t mvx,mvy = 0;
 
 // syntax for receiving numbers
 const char startOfNumberDelimiter = '<';
@@ -69,6 +74,8 @@ void reset_cmd_input(void) {
 //  inputString = "";
     argc = 0;
 }
+
+static bool bleConnected = false;
 
 /* ==================================== */
 
@@ -84,17 +91,28 @@ void setup_ble_device() {
   {
     error(F("Couldn't find Bluefruit, make sure it's in COMMAND mode & check wiring?"));
   }
-  Serial.println( F("OK!") );
+  DBGPRINTLN( F("OK!") );
+
+  if ( !ble.isVersionAtLeast(MINIMUM_FIRMWARE_VERSION) )
+  {
+    error( F("Callback requires at least 0.7.0") );
+  }
 
   #if FACTORYRESET_ENABLE
     /* Perform a factory reset to make sure everything is in a known state */
-    Serial.println(F("Performing a factory reset: "));
+    DBGPRINTLN(F("Performing a factory reset: "));
     if ( ! ble.factoryReset(true) ){
       error(F("Couldn't factory reset"));
     }
 
-    Serial.println(F("Configuring device preferences... "));
+    DBGPRINTLN(F("Configuring device preferences... "));
     ble.println("AT+GAPDEVNAME=Segfault 0x1337");
+    ble.sendCommandCheckOK("AT+BLEPOWERLEVEL=4");
+//    ble.sendCommandCheckOK( F("AT+GATTADDSERVICE=uuid=0x1234") );
+//    ble.sendCommandWithIntReply( F("AT+GATTADDCHAR=UUID=0x2345,PROPERTIES=0x08,MIN_LEN=1,MAX_LEN=6,DATATYPE=string,DESCRIPTION=string,VALUE=abc"), &charid_string);
+//    ble.sendCommandWithIntReply( F("AT+GATTADDCHAR=UUID=0x6789,PROPERTIES=0x08,MIN_LEN=4,MAX_LEN=4,DATATYPE=INTEGER,DESCRIPTION=number,VALUE=0"), &charid_number);
+  
+    ble.reset();
   #endif
   
   /* Disable command echo from Bluefruit */
@@ -104,26 +122,47 @@ void setup_ble_device() {
   /* Print Bluefruit information */
   ble.info();
 
-  Serial.println(F("Please use Adafruit Bluefruit LE app to connect in UART mode"));
-  Serial.println(F("Then Enter characters to send to Bluefruit"));
-  Serial.println();
+  DBGPRINTLN(F("Please use Adafruit Bluefruit LE app to connect in UART mode"));
+  DBGPRINTLN(F("Then Enter characters to send to Bluefruit"));
+  DBGPRINTLN();
 
   ble.verbose(false);  // debug info is a little annoying after this point!
+}
 
-  /* Wait for connection */
-  while (! ble.isConnected()) {
-      delay(500);
-  }
+//enum HWLED_MODE {
+//  LED_DISABLE,//0
+//  LED_MODE,   //1
+//  LED_HWUART, //2
+//  LED_BLEUART,//3
+//  LED_SPI,    //4
+//  LED_MANUAL  //5
+//}
 
+void set_led_mode(const char mode) {
+    static char cmd[] = "AT+HWModeLED=1";
   // LED Activity command is only supported from 0.6.6
-  if ( ble.isVersionAtLeast(MINIMUM_FIRMWARE_VERSION) )
+  if ( ble.isVersionAtLeast(MIN_LED_FW) )
   {
+    // replace character in command
+    cmd[13] = mode;
     // Change Mode LED Activity
-    Serial.println(F("******************************"));
-    Serial.println(F("Change LED activity to " MODE_LED_BEHAVIOUR));
-    ble.sendCommandCheckOK("AT+HWModeLED=" MODE_LED_BEHAVIOUR);
-    Serial.println(F("******************************"));
+    DBGPRINTLN(F("******************************"));
+    DBGPRINT(F("Change LED activity: ")); DBGPRINTLN(cmd);
+    ble.sendCommandCheckOK(cmd);
+    DBGPRINTLN(F("******************************"));
   }
+}
+
+void ble_connected() {
+  if(!ble.isConnected()) return;
+  
+  set_led_mode(MODE_LED_BEHAVIOUR);
+}
+
+void ble_disconnected() {
+  DBGPRINTLN(F("Device Disconnected"));
+  set_led_mode(MODE_LED_WAITING);
+  clear_mouse();
 }
 
 void ProcessSerial(char inChar) {
@@ -225,7 +264,10 @@ uint16_t readln(void) {
   return readline(ble.buffer, BLE_BUFSIZE, BLE_DEFAULT_TIMEOUT, false);
 }
 
+
+
 void receive_uart() {
+  if(!ble.isConnected()) return;
   //   Check for incoming characters from Bluefruit
   ble.println("AT+BLEUARTRX");
   

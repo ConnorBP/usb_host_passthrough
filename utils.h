@@ -13,6 +13,13 @@
 #define STRNCMP(str1,str2) strncmp(str1,str2,strlen(str2))
 #define STREQ(str1,str2) STRCMP(str1,str2) == 0
 
+// mouse clicking macros
+
+#define PRESS_LEFTM serial_buttons_value |= MOUSE_LEFT
+#define RELEASE_LEFTM serial_buttons_value &= ~MOUSE_LEFT
+#define PRESS_RIGHTM serial_buttons_value |= MOUSE_RIGHT
+#define RELEASE_RIGHTM serial_buttons_value &= ~MOUSE_RIGHT
+
 const uint32_t INITIAL_CPU_SPEED = F_CPU_ACTUAL;
 // if this is set, then the board is in a lower power mode
 // any extra stuff that is not passthrough or serial queries should be skipped
@@ -42,6 +49,10 @@ inline void enter_sleep() {
 inline void exit_sleep() {
   sleeping = false;
   set_arm_clock(INITIAL_CPU_SPEED);
+}
+extern uint8_t serial_buttons_value;
+inline void clear_mouse() {
+  serial_buttons_value = 0;
 }
 
 inline bool prefix(const char *pre, const char *str)
