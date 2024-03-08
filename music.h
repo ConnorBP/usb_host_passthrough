@@ -66,10 +66,18 @@ static bool booped = false;
 static unsigned long booped_at = 0;
 static unsigned long time_now = 0;
 const int boop_duration = 1000 / 6; 
-inline void boop(void) {
+inline void buzz(int note) {
   booped_at = millis();
   booped = true;
-  tone(MUSIC_OUT_PIN, NOTE_C8, boop_duration);
+  tone(MUSIC_OUT_PIN, note, boop_duration);
+}
+
+inline void boop(void) {
+  buzz(NOTE_A4);
+}
+
+inline void beep(void) {
+  buzz(NOTE_C8);
 }
 
 inline void checkBoop(void) {
